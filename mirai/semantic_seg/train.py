@@ -152,7 +152,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     correct_label: tf.Placeholder object
         Placeholder for image labels.
     keep_prob: tf.Placeholder object
-        Placeholder 
+        Placeholder
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
     """
@@ -191,7 +191,7 @@ def run():
         logits, train_op, cross_entropy_loss = optimize(output, correct_label, learning_rate, num_classes)
         train_nn(sess, n_epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input, correct_label, keep_prob, learning_rate)
         print("Saving model...")
-        tf.train.Saver().save(sess, "./model/model.ckpt")
+        tf.train.Saver().save(sess, "./model/model")
 
 if __name__ == '__main__':
     run()
