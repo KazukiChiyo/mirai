@@ -6,27 +6,26 @@ import matplotlib.image as mpimg
 import time
 
 class DetectLanes(object):
-    def __init__(self, src, dst, n_windows=5, margin=40, minpix=20, color=(0, 255, 0), thickness=9, verbose=False):
+    def __init__(self, src, dst, input_shape=(720, 1280), n_windows=5, margin=40, minpix=20, thickness=9, verbose=False):
+        self.input_shape = input_shape
         self.n_windows = n_windows
         self.margin = margin
         self.minpix = minpix
-        self.color = color
         self.thickness = thickness
         self.verbose = verbose
-        self.set_perspective(src, dst)
-
-    def set_perspective(self, src, dst):
+        self.mask = None
+        self.window_height = np.int(self.input_shape[0]//self.n_windows)
         self.M = cv2.getPerspectiveTransform(src, dst)
         self.rev_M = cv2.getPerspectiveTransform(dst, src)
 
     def image_unwrap(self, image):
-        warped = cv2.warpPerspective(image, self.M, (image.shape[1],image.shape[0]))
+        warped = cv2.warpPerspective(image, self.M, (self.input_shape[1],self.input_shape[0]))
         return warped
 
     def hough_transform(self, image):
         rho, theta, threshold, min_line_len, max_line_gap = 10, np.pi/15, 30, 30, 10
         lines = cv2.HoughLinesP(image, rho, theta, threshold, np.array([]), minLineLength=min_line_len, maxLineGap=max_line_gap)
-        line_image = np.zeros((image.shape[0], image.shape[1], 1), dtype=np.uint8)
+        line_image = np.zeros((self.input_shape[0], self.input_shape[1], 1), dtype=np.uint8)
         for line in lines:
             for x1,y1,x2,y2 in line:
                 if x2 != x1 and np.abs((y2-y1)/(x2-x1)) > 1.5:
@@ -34,18 +33,13 @@ class DetectLanes(object):
         return line_image
 
     def region_of_interest(self, binary_image):
-        # Defining a blank mask to start with
-        mask = np.zeros_like(binary_image)
-
-        # Define mask and vertices
-        ignore_mask_color = 1
-        vertices = np.array([[(324,700),(136,620),(308,289),(1042,289),(1112,633),(940,700)]], dtype=np.int32)
-
-        # Filling pixels inside the polygon defined by "vertices" with the fill color
-        cv2.fillPoly(mask, vertices, ignore_mask_color)
-
         # Returning the image only where mask pixels are nonzero
-        masked_binary = cv2.bitwise_and(binary_image, mask)
+        if not self.mask:
+            self.mask = np.zeros_like(binary_image)
+            ignore_mask_color = 1
+            vertices = np.array([[(324,700),(136,620),(308,289),(1042,289),(1112,633),(940,700)]], dtype=np.int32)
+            cv2.fillPoly(self.mask, vertices, ignore_mask_color)
+        masked_binary = cv2.bitwise_and(binary_image, self.mask)
         return masked_binary
 
     def find_lane_pixels(self, binary_warped):
@@ -54,8 +48,6 @@ class DetectLanes(object):
 
         peaks = peakutils.indexes(np.int32(histogram), thres=25, min_dist=200, thres_abs=True)
 
-        # Set height of windows - based on nwindows above and image shape
-        window_height = np.int(binary_warped.shape[0]//self.n_windows)
         # Identify the x and y positions of all nonzero pixels in the image
         nonzero = binary_warped.nonzero()
         nonzeroy = np.array(nonzero[0])
@@ -72,14 +64,10 @@ class DetectLanes(object):
             # Step through the windows one by one
             for window in range(self.n_windows):
                 # Identify window boundaries in x and y (and right and left)
-                win_y_low = binary_warped.shape[0] - (window+1)*window_height
-                win_y_high = binary_warped.shape[0] - window*window_height
+                win_y_low = self.input_shape[0] - (window+1)*self.window_height
+                win_y_high = self.input_shape[0] - window*self.window_height
                 win_x_low = peak - self.margin
                 win_x_high = peak + self.margin
-
-                # Draw the windows on the visualization image
-                # cv2.rectangle(out_img,(win_x_low,win_y_low),
-                # (win_x_high,win_y_high),(0,255,0), 5)
 
                 # Identify the nonzero pixels in x and y within the window #
                 good_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
@@ -108,20 +96,21 @@ class DetectLanes(object):
 
     def fit_polynomial(self, binary_warped):
         # Find our lane pixels first
-        out_img = np.zeros((binary_warped.shape[0], binary_warped.shape[1], 3), dtype=np.uint8)
+        out_img = np.zeros((self.input_shape[0], self.input_shape[1], 3), dtype=np.uint8)
         x_array, y_array = self.find_lane_pixels(binary_warped)
 
         for x, y in zip(x_array,y_array):
             fit = np.polyfit(y, x, 2)
-            ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0])
+            ploty = np.linspace(0, self.input_shape[0]-1, self.input_shape[0])
             try:
                 fitx = fit[0]*ploty**2 + fit[1]*ploty + fit[2]
             except TypeError:
                 ('The function failed to fit a line!')
                 fitx = 1*ploty**2 + 1*ploty
 
-            cv2.polylines(img=out_img, pts=np.int32([np.stack((fitx, ploty), axis=-1)]), isClosed=False, color=self.color, thickness=self.thickness)
+            cv2.polylines(img=out_img, pts=np.int32([np.stack((fitx, ploty), axis=-1)]), isClosed=False, color=(0, 255, 0), thickness=self.thickness)
 
+        cv2.line(img=out_img, pt1=(self.input_shape[1]//2-1, self.input_shape[0]//2-1), pt2=(self.input_shape[1]//2-1, self.input_shape[0]), color=(0, 0, 255), thickness=self.thickness)
         return out_img
 
 
